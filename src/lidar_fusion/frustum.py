@@ -108,6 +108,32 @@ def estimate_depth_stats(filtered_points: np.ndarray) -> dict[str, float]:
     }
 
 
+def compute_3d_extent(filtered_points: np.ndarray) -> dict[str, float]:
+    """Compute axis-aligned 3D bounding extent of filtered LiDAR points.
+
+    Returns dict with x/y/z min, max, extent, centre, and total box volume.
+    """
+    if filtered_points.shape[0] == 0:
+        return {
+            "x_min": 0.0, "x_max": 0.0, "x_extent": 0.0,
+            "y_min": 0.0, "y_max": 0.0, "y_extent": 0.0,
+            "z_min": 0.0, "z_max": 0.0, "z_extent": 0.0,
+            "center": [0.0, 0.0, 0.0],
+            "volume": 0.0,
+        }
+    pts = filtered_points[:, :3]
+    mins = pts.min(axis=0)
+    maxs = pts.max(axis=0)
+    extents = maxs - mins
+    return {
+        "x_min": float(mins[0]), "x_max": float(maxs[0]), "x_extent": float(extents[0]),
+        "y_min": float(mins[1]), "y_max": float(maxs[1]), "y_extent": float(extents[1]),
+        "z_min": float(mins[2]), "z_max": float(maxs[2]), "z_extent": float(extents[2]),
+        "center": pts.mean(axis=0).tolist(),
+        "volume": float(extents[0] * extents[1] * extents[2]),
+    }
+
+
 def _empty_result(bbox: np.ndarray) -> FrustumResult:
     return FrustumResult(
         points_3d=np.empty((0, 3)),

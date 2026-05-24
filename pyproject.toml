@@ -36,9 +36,6 @@ dev = [
     "types-PyYAML>=6.0",
 ]
 
-[project.scripts]
-lidar-fusion = "lidar_fusion.cli:app"
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/lidar_fusion"]
 

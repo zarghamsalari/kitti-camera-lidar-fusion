@@ -96,6 +96,8 @@ scripts/
   run_projection_demo.py   # CLI: project LiDAR onto image
   run_frustum_demo.py      # CLI: YOLO + frustum filtering
   run_kitti_sample.py      # CLI: real KITTI sample fusion (label-based)
+  convert_yolo_detections.py  # Convert external YOLO outputs to detections.json
+  run_sequence_evaluation.py  # Sequence evaluation with depth-cleaning ablation
 
 streamlit_app/
   app.py             # Interactive demo
@@ -140,6 +142,124 @@ pipeline that a digital inspection robot would use:
 | Velodyne LiDAR (`velodyne`) | Robot 3D LiDAR / depth / spatial sensor |
 | Calibration files (`calib`) | Multi-sensor robot calibration |
 | 2D box + LiDAR frustum filtering | First step toward 3D object / anomaly localisation |
+
+## Using External YOLO Detections
+
+If you have YOLO detection outputs from another project (e.g. a KITTI tracking
+pipeline), convert them into the standard format used by this fusion dashboard:
+
+```bash
+python scripts/convert_yolo_detections.py path/to/your_detections.csv
+```
+
+This writes `outputs/detections.json` in the normalised format:
+
+```json
+[
+  {
+    "frame_id": "000000",
+    "class_name": "person",
+    "confidence": 0.91,
+    "bbox": [712.4, 143.0, 810.7, 307.9]
+  }
+]
+```
+
+The converter accepts CSV or JSON input with columns/keys:
+`frame_id`, `class_name`, `confidence`, and bounding-box coordinates
+(either `xmin/ymin/xmax/ymax`, `x1/y1/x2/y2`, or a `bbox` list).
+
+Once generated, the Streamlit dashboard automatically detects the file and
+offers "External YOLO detections" as a detection source in the sidebar.
+
+```bash
+streamlit run streamlit_app/app.py
+```
+
+## Sequence Evaluation
+
+The evaluation pipeline measures 3D localisation accuracy against KITTI ground-truth
+labels, with explicit separation of fusion error from detection error.
+
+### Evaluation modes
+
+| Mode | Flag | What it measures |
+|---|---|---|
+| GT-box evaluation | `--detection-source labels` | Fusion / frustum / localisation layer in isolation |
+| YOLO-box evaluation | `--detection-source yolo` | Full detection + fusion stack |
+
+GT-box mode uses KITTI `label_2` 2D bounding boxes as input, removing detection
+noise so the evaluation reflects only the quality of the frustum filtering and
+depth estimation. YOLO-box mode uses external 2D detections, measuring the
+combined effect of detection accuracy and fusion quality.
+
+### Frustum cleaning ablation
+
+Raw frustum points often include background contamination. The evaluator
+supports four cleaning methods, run individually or together:
+
+| Method | Description |
+|---|---|
+| `raw` | No cleaning (baseline) |
+| `iqr` | Remove depth outliers outside 1.5x interquartile range |
+| `peak` | Keep points near the dominant depth-histogram peak |
+| `dbscan` | Cluster frustum points, select nearest dense cluster |
+
+### Running the evaluation
+
+```bash
+# Evaluate fusion layer only (GT boxes), all cleaning methods:
+python scripts/run_sequence_evaluation.py \
+  --data-root data/kitti/object/training \
+  --start-id 000000 --end-id 000099 \
+  --detection-source labels \
+  --depth-method all
+
+# Evaluate full stack (YOLO boxes):
+python scripts/run_sequence_evaluation.py \
+  --data-root data/kitti/object/training \
+  --start-id 000000 --end-id 000099 \
+  --detection-source yolo \
+  --detections-json outputs/detections.json \
+  --depth-method all
+```
+
+### Outputs
+
+| File | Content |
+|---|---|
+| `results.csv` | Per-object, per-method row with depth error, centre error, point diagnostics |
+| `summary.json` | Aggregate MAE/RMSE, per-class and per-method breakdowns |
+| `failure_cases.csv` | Objects where frustum filtering returned zero points |
+| `figures/` | Scatter plots, error histograms, method comparison charts |
+
+### Metrics reported
+
+- **Depth MAE / RMSE**: absolute error between estimated frustum depth and KITTI GT camera-z
+- **Centre MAE / RMSE**: Euclidean 3D centre error (approximate Velodyne-to-camera mapping)
+- **Contamination diagnostics**: raw vs cleaned point count, retention ratio, depth shift, IQR change
+- **Axis-aligned 3D extent**: x/y/z extent and volume from cleaned frustum points
+- **PCA yaw** (experimental): BEV principal-component yaw estimate, not used in official metrics
+
+### Limitations of current evaluation
+
+- **No 3D IoU**: current cuboids are axis-aligned. KITTI GT boxes are oriented (rotated by `rotation_y`).
+  3D IoU computation requires yaw/orientation estimation, which is not yet implemented.
+- **Coordinate mapping**: estimates are in Velodyne frame, GT is in camera frame.
+  Depth comparison uses Velodyne-x vs Camera-z. Centre comparison uses an approximate mapping.
+- **Frustum contamination**: background points inside the 2D box bias depth and centre estimates.
+  Cleaning methods mitigate but do not eliminate this.
+
+### Results placeholder
+
+_Run the evaluation on 100+ frames and paste the summary table here._
+
+| Metric | raw | iqr | peak | dbscan |
+|---|---|---|---|---|
+| Depth MAE (m) | - | - | - | - |
+| Depth RMSE (m) | - | - | - | - |
+| Centre MAE (m) | - | - | - | - |
+| Valid rate (%) | - | - | - | - |
 
 ## Project Positioning
 
