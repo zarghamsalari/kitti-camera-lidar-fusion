@@ -14,7 +14,7 @@ This project implements a lightweight, explainable camera-LiDAR fusion demo for 
 6. Estimate approximate object depth and 3D centre
 7. Visualise results: projection overlay, detection+LiDAR overlay, bird's-eye view
 
-No deep 3D detection (PointPillars, VoxelNet, BEVFusion) is used.
+No deep 3D detection networks are used.
 This is a classical geometry + 2D detection approach.
 
 ## Setup
@@ -95,6 +95,7 @@ src/lidar_fusion/
 scripts/
   run_projection_demo.py   # CLI: project LiDAR onto image
   run_frustum_demo.py      # CLI: YOLO + frustum filtering
+  run_kitti_sample.py      # CLI: real KITTI sample fusion (label-based)
 
 streamlit_app/
   app.py             # Interactive demo
@@ -103,11 +104,57 @@ configs/
   kitti_lidar.yaml   # Dataset and model configuration
 ```
 
-## Week 2 Context
+## Running on a Real KITTI Sample
 
-This project is the Week 2 deliverable in a multi-week autonomous driving perception series.
-Week 1 covered 2D detection and multi-object tracking on KITTI MOT
-([kitti-tracking](https://github.com/zarghamsalari/kitti-tracking)).
-This week extends into 3D sensor fusion using camera-LiDAR geometry.
+Place at least one KITTI object-detection sample under:
 
-See [docs/week2_lidar_fusion.md](docs/week2_lidar_fusion.md) for technical details.
+```
+data/kitti/object/training/
+  image_2/000000.png
+  velodyne/000000.bin
+  calib/000000.txt
+  label_2/000000.txt
+```
+
+Local KITTI data is git-ignored and never committed to the repository.
+
+Run the classical fusion pipeline on a single sample:
+
+```bash
+python scripts/run_kitti_sample.py \
+  --sample-id 000000 \
+  --data-root data/kitti/object/training \
+  --output-dir outputs
+```
+
+This reads the ground-truth 2D label (no YOLO weights needed), projects LiDAR
+points onto the image, filters LiDAR points inside the labelled bounding box,
+and estimates depth and a 3D centre. Outputs are saved to `outputs/`.
+
+This demonstrates the **perception and sensor-fusion layer** — the same
+pipeline that a digital inspection robot would use:
+
+| KITTI component | Robot equivalent |
+|---|---|
+| Left colour camera (`image_2`) | Inspection robot RGB / video camera |
+| Velodyne LiDAR (`velodyne`) | Robot 3D LiDAR / depth / spatial sensor |
+| Calibration files (`calib`) | Multi-sensor robot calibration |
+| 2D box + LiDAR frustum filtering | First step toward 3D object / anomaly localisation |
+
+## Project Positioning
+
+This repository demonstrates a classical camera-LiDAR fusion pipeline for robotic perception and 3D spatial localisation. Using real KITTI object-detection data, it projects LiDAR points into the camera image, associates 2D object labels with 3D point-cloud evidence, performs frustum filtering, and estimates approximate object depth and 3D centre.
+
+The project is positioned as a transparent foundation for digital inspection robotics, where cameras, LiDAR, calibration, and spatial reasoning are required before higher-level autonomy, anomaly mapping, inspection planning, or operator dashboards.
+
+This repository focuses specifically on camera-LiDAR fusion: projecting 3D LiDAR evidence into the camera frame, associating 2D object regions with spatial point-cloud evidence, and producing interpretable depth and 3D-centre estimates.
+
+See [docs/lidar_fusion_technical_overview.md](docs/lidar_fusion_technical_overview.md) for technical details.
+
+## Current Scope and Limitations
+
+- This is a classical perception and sensor-fusion baseline implementation.
+- It does not include robot hardware, navigation, manipulation, or industrial validation.
+- It uses ground-truth KITTI labels or optional 2D detections (YOLOv8) rather than a trained 3D detector.
+- No deep 3D detection networks are used; 3D localisation relies entirely on classical geometry.
+- It is designed as a transparent classical baseline before advanced 3D detection or robotic deployment.

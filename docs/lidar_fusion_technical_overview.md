@@ -1,4 +1,4 @@
-# Week 2 -- Camera-LiDAR Fusion on KITTI
+# Camera-LiDAR Fusion on KITTI -- Technical Overview
 
 ## Objective
 
@@ -7,7 +7,7 @@ Cameras provide rich texture and colour for 2D detection, while LiDAR provides
 accurate 3D geometry. Combining both modalities enables depth-aware object
 detection without training a full 3D network.
 
-This week builds a classical, explainable fusion pipeline using KITTI 3D Object
+This project builds a classical, explainable fusion pipeline using KITTI 3D Object
 Detection data.
 
 ## Method
@@ -74,6 +74,6 @@ graph LR
 
 - Compare estimated depth with KITTI 3D ground truth labels
 - Add 3D IoU evaluation against KITTI annotations
-- Benchmark PointPillars or VoxelNet for learned 3D detection
-- Connect 3D detections to the Week 1 tracking pipeline
-- Explore BEVFusion-style deep fusion architectures
+- Compare against learned 3D detection baselines in a separate future repository
+- Connect 3D detections to a multi-object tracking pipeline
+- Extend the classical baseline toward learned fusion methods after the geometry pipeline is validated
