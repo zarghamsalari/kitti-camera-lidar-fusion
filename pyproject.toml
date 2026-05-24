@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lidar-fusion"
+version = "0.1.0"
+description = "Classical camera-LiDAR fusion on KITTI 3D Object Detection"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Zargham" }]
+dependencies = [
+    "numpy>=1.26",
+    "opencv-python>=4.9",
+    "torch>=2.2",
+    "torchvision>=0.17",
+    "ultralytics>=8.1",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "rich>=13.7",
+    "tqdm>=4.66",
+    "matplotlib>=3.8",
+    "pillow>=10.2",
+    "plotly>=5.18",
+    "streamlit>=1.32",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+    "mypy>=1.9",
+    "pre-commit>=3.7",
+    "types-PyYAML>=6.0",
+]
+
+[project.scripts]
+lidar-fusion = "lidar_fusion.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lidar_fusion"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["N802", "N803"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "slow: tests that need real KITTI data or GPU (excluded from CI)",
+]
+addopts = "--cov=lidar_fusion --cov-report=term-missing -m 'not slow'"

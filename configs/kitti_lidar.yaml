@@ -1,0 +1,26 @@
+# KITTI 3D Object Detection — LiDAR fusion config
+
+dataset:
+  root: data/kitti3d/training
+  image_dir: image_2
+  velodyne_dir: velodyne
+  calib_dir: calib
+  label_dir: label_2
+  sample_ids: ["000001", "000008", "000015", "000025", "000050"]
+
+detector:
+  weights: yolov8m.pt
+  conf: 0.25
+  iou: 0.5
+  classes: [0, 2]   # COCO person, car
+  device: ""
+
+lidar:
+  max_distance: 80.0
+  min_points_per_box: 3
+
+output:
+  projection_dir: outputs/lidar_projection
+  frustum_dir: outputs/lidar_frustum
+
+seed: 42
