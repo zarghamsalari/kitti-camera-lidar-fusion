@@ -15,3 +15,9 @@ runs/
 *.mp4
 
 .coverage
+
+data/
+
+outputs/
+
+*.zip
