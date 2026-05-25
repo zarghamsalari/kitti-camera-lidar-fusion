@@ -25,7 +25,7 @@ _SRC = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from lidar_fusion.calibration import load_calibration, project_lidar_to_image
+from lidar_fusion.calibration import KittiCalibration, lidar_to_camera, load_calibration, project_lidar_to_image
 from lidar_fusion.depth_cleaning import METHODS as CLEANING_METHODS, apply_cleaning
 from lidar_fusion.frustum import compute_3d_extent, frustum_filter
 from lidar_fusion.pointcloud import filter_by_range, filter_forward_points, load_velodyne_bin
@@ -104,8 +104,9 @@ RESULT_FIELDS = [
     "raw_point_count", "cleaned_point_count", "point_retention_ratio",
     "raw_median_depth", "cleaned_median_depth", "depth_shift_raw_to_cleaned",
     "raw_depth_iqr", "cleaned_depth_iqr",
-    "estimated_x", "estimated_y", "estimated_z",
-    "gt_x", "gt_y", "gt_z",
+    "estimated_velo_x", "estimated_velo_y", "estimated_velo_z",
+    "estimated_cam_x", "estimated_cam_y", "estimated_cam_z",
+    "gt_cam_x", "gt_cam_y", "gt_cam_z",
     "depth_error", "centre_error",
     "x_extent", "y_extent", "z_extent", "volume",
     "pca_yaw_rad",
@@ -123,6 +124,7 @@ def evaluate_object(
     points: np.ndarray,
     uv: np.ndarray,
     valid_mask: np.ndarray,
+    calib: KittiCalibration,
     obj: dict,
     frame_id: str,
     obj_idx: int,
@@ -157,10 +159,11 @@ def evaluate_object(
             "raw_median_depth": 0.0, "cleaned_median_depth": 0.0,
             "depth_shift_raw_to_cleaned": 0.0,
             "raw_depth_iqr": 0.0, "cleaned_depth_iqr": 0.0,
-            "estimated_x": 0.0, "estimated_y": 0.0, "estimated_z": 0.0,
-            "gt_x": gt_location[0] if gt_location else "",
-            "gt_y": gt_location[1] if gt_location else "",
-            "gt_z": gt_location[2] if gt_location else "",
+            "estimated_velo_x": 0.0, "estimated_velo_y": 0.0, "estimated_velo_z": 0.0,
+            "estimated_cam_x": 0.0, "estimated_cam_y": 0.0, "estimated_cam_z": 0.0,
+            "gt_cam_x": gt_location[0] if gt_location else "",
+            "gt_cam_y": gt_location[1] if gt_location else "",
+            "gt_cam_z": gt_location[2] if gt_location else "",
             "depth_error": "", "centre_error": "",
             "x_extent": 0.0, "y_extent": 0.0, "z_extent": 0.0, "volume": 0.0,
             "pca_yaw_rad": 0.0,
@@ -192,6 +195,11 @@ def evaluate_object(
 
     retention = cleaned_count / raw_count if raw_count > 0 else 0.0
 
+    # Transform estimated centre from Velodyne to camera frame using calibration
+    est_cam_centre = lidar_to_camera(
+        cleaned_centre.reshape(1, 3), calib,
+    ).flatten()  # [cam_x, cam_y, cam_z]
+
     result.update({
         "raw_point_count": raw_count,
         "cleaned_point_count": cleaned_count,
@@ -201,9 +209,12 @@ def evaluate_object(
         "depth_shift_raw_to_cleaned": round(cleaned_median - raw_median, 4),
         "raw_depth_iqr": round(raw_iqr_val, 4),
         "cleaned_depth_iqr": round(cleaned_iqr_val, 4),
-        "estimated_x": round(float(cleaned_centre[0]), 4),
-        "estimated_y": round(float(cleaned_centre[1]), 4),
-        "estimated_z": round(float(cleaned_centre[2]), 4),
+        "estimated_velo_x": round(float(cleaned_centre[0]), 4),
+        "estimated_velo_y": round(float(cleaned_centre[1]), 4),
+        "estimated_velo_z": round(float(cleaned_centre[2]), 4),
+        "estimated_cam_x": round(float(est_cam_centre[0]), 4),
+        "estimated_cam_y": round(float(est_cam_centre[1]), 4),
+        "estimated_cam_z": round(float(est_cam_centre[2]), 4),
         "x_extent": round(ext["x_extent"], 4),
         "y_extent": round(ext["y_extent"], 4),
         "z_extent": round(ext["z_extent"], 4),
@@ -211,34 +222,27 @@ def evaluate_object(
         "pca_yaw_rad": round(yaw, 4),
     })
 
-    # GT comparison (KITTI GT location is in camera frame: x-right, y-down, z-forward)
-    # Our estimates are in Velodyne frame: x-forward, y-left, z-up
-    # Depth comparison: estimated x (Velodyne forward) vs GT z (camera forward)
+    # GT comparison -- both estimated and GT are now in rectified camera frame
+    # depth_error = |estimated_cam_z - gt_cam_z|
+    # centre_error = Euclidean distance between estimated and GT camera-frame centres
     if gt_location:
-        gt_x, gt_y, gt_z = gt_location
-        result["gt_x"] = round(gt_x, 4)
-        result["gt_y"] = round(gt_y, 4)
-        result["gt_z"] = round(gt_z, 4)
+        gt_cam_x, gt_cam_y, gt_cam_z = gt_location
+        result["gt_cam_x"] = round(gt_cam_x, 4)
+        result["gt_cam_y"] = round(gt_cam_y, 4)
+        result["gt_cam_z"] = round(gt_cam_z, 4)
 
-        # Depth: Velodyne x ≈ camera z (forward distance)
-        depth_err = abs(cleaned_median - gt_z)
+        depth_err = abs(float(est_cam_centre[2]) - gt_cam_z)
         result["depth_error"] = round(depth_err, 4)
 
-        # 3D centre error: compare in camera frame convention
-        # Rough mapping: Velo(x,y,z) ≈ Cam(z, -x, -y) approximately
-        # But since both are approximate, use Euclidean on GT cam vs est Velo
-        # projected into a comparable space:
-        # est_cam_z ≈ est_velo_x, est_cam_x ≈ -est_velo_y, est_cam_y ≈ -est_velo_z
-        est_cam = np.array([-cleaned_centre[1], -cleaned_centre[2], cleaned_centre[0]])
-        gt_cam = np.array([gt_x, gt_y, gt_z])
-        centre_err = float(np.linalg.norm(est_cam - gt_cam))
+        gt_cam = np.array([gt_cam_x, gt_cam_y, gt_cam_z])
+        centre_err = float(np.linalg.norm(est_cam_centre - gt_cam))
         result["centre_error"] = round(centre_err, 4)
         result["status"] = "valid"
         result["failure_reason"] = ""
     else:
-        result["gt_x"] = ""
-        result["gt_y"] = ""
-        result["gt_z"] = ""
+        result["gt_cam_x"] = ""
+        result["gt_cam_y"] = ""
+        result["gt_cam_z"] = ""
         result["depth_error"] = ""
         result["centre_error"] = ""
         result["status"] = "valid_no_gt"
@@ -313,10 +317,10 @@ def compute_summary(rows: list[dict]) -> dict:
         "notes": {
             "3d_iou": "Not computed. Current cuboids are axis-aligned; KITTI GT boxes "
                       "are oriented. 3D IoU requires yaw/orientation estimation.",
-            "coordinate_mapping": "Estimates are in Velodyne frame (x-forward, y-left, z-up). "
-                                  "GT is in camera frame (x-right, y-down, z-forward). "
-                                  "Depth error uses Velodyne-x vs Camera-z. Centre error "
-                                  "uses an approximate Velo-to-cam mapping.",
+            "coordinate_mapping": "Estimated Velodyne centres are transformed to rectified "
+                                  "camera coordinates using Tr_velo_to_cam and R0_rect. "
+                                  "Depth error = |estimated_cam_z - gt_cam_z|. "
+                                  "Centre error = Euclidean distance in camera frame.",
             "pca_yaw": "Experimental BEV PCA yaw is reported but not used in metrics.",
         },
     }
@@ -337,10 +341,10 @@ def generate_figures(rows: list[dict], fig_dir: Path) -> None:
                              if isinstance(r["depth_error"], (int, float))])
     centre_errors = np.array([r["centre_error"] for r in valid
                               if isinstance(r["centre_error"], (int, float))])
-    gt_depths = np.array([r["gt_z"] for r in valid
-                          if isinstance(r["gt_z"], (int, float))])
-    est_depths = np.array([r["cleaned_median_depth"] for r in valid
-                           if isinstance(r["gt_z"], (int, float))])
+    gt_depths = np.array([r["gt_cam_z"] for r in valid
+                          if isinstance(r["gt_cam_z"], (int, float))])
+    est_depths = np.array([r["estimated_cam_z"] for r in valid
+                           if isinstance(r["gt_cam_z"], (int, float))])
     point_counts = np.array([r["cleaned_point_count"] for r in valid
                              if isinstance(r["depth_error"], (int, float))])
 
@@ -351,7 +355,7 @@ def generate_figures(rows: list[dict], fig_dir: Path) -> None:
         lims = [0, max(gt_depths.max(), est_depths.max()) * 1.1]
         ax.plot(lims, lims, "k--", lw=1, label="ideal")
         ax.set_xlabel("GT Depth -- camera z (m)")
-        ax.set_ylabel("Estimated Depth -- Velodyne x (m)")
+        ax.set_ylabel("Estimated Depth -- camera z (m)")
         ax.set_title("Predicted vs Ground-Truth Depth")
         ax.legend()
         ax.set_aspect("equal")
@@ -512,7 +516,7 @@ def main() -> None:
 
             for method in methods:
                 row = evaluate_object(
-                    points, uv, valid_mask, obj,
+                    points, uv, valid_mask, calib, obj,
                     frame_id, obj_idx, det_source_label, method, gt_loc,
                 )
                 all_rows.append(row)
