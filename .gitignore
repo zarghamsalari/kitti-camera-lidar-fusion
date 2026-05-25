@@ -21,3 +21,5 @@ data/
 outputs/
 
 *.zip
+
+.claude/
